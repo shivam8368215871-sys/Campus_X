@@ -12,7 +12,7 @@ import {
   resaleItems as initialResaleItems,
 } from '../data/mock'
 
-const API_BASE = 'http://127.0.0.1:8000'
+import API_BASE from '../config/api.js'
 const TOKEN_KEY = 'campusx_token'
 
 function getSavedToken() {
@@ -28,6 +28,7 @@ const initial = {
   tab: 'home',
   token: null,
   user: currentUser,
+  chatTarget: null,
   presenceHidden: false,
   createOpen: false,
   toasts: [],
@@ -166,6 +167,19 @@ function reducer(state, action) {
           (id) => id !== action.studentId
         ),
       }
+
+      case 'openChat':
+  return {
+    ...state,
+    tab: 'chat',
+    chatTarget: action.student,
+  }
+
+  case 'clearChatTarget':
+  return {
+    ...state,
+    chatTarget: null,
+  }
 
     default:
       return state

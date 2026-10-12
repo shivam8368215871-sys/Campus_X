@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Check,
 } from 'lucide-react'
+
 import {
   useCallback,
   useEffect,
@@ -14,9 +15,10 @@ import {
   useRef,
   useState,
 } from 'react'
+
 import { useApp } from '../../store/AppContext'
 
-const API_BASE = 'http://127.0.0.1:8000'
+import API_BASE from '../../config/api.js'
 const POLL_INTERVAL = 4000
 
 function toId(value) {
@@ -25,7 +27,9 @@ function toId(value) {
 }
 
 function errorText(data, fallback) {
-  return typeof data?.detail === 'string' ? data.detail : fallback
+  return typeof data?.detail === 'string'
+    ? data.detail
+    : fallback
 }
 
 function belongsToPair(item, userId, otherId) {
@@ -80,9 +84,10 @@ function formatDateLabel(value) {
   return date.toLocaleDateString([], {
     day: 'numeric',
     month: 'long',
-    year: date.getFullYear() !== today.getFullYear()
-      ? 'numeric'
-      : undefined,
+    year:
+      date.getFullYear() !== today.getFullYear()
+        ? 'numeric'
+        : undefined,
   })
 }
 
@@ -116,8 +121,6 @@ function sameDay(a, b) {
 }
 
 function mergeMessages(oldMessages, newMessages) {
-  // The database ID is the stable identity of a message.
-  // Merge rather than blindly appending polled history.
   const byId = new Map()
 
   for (const item of oldMessages) {
@@ -137,16 +140,20 @@ function mergeMessages(oldMessages, newMessages) {
 }
 
 export default function Chat() {
-  const { state, toast } = useApp()
+  const { state, dispatch, toast } = useApp()
 
   const currentUserId = toId(state.user?.id)
-
   const token = state.token
+
   const [conversations, setConversations] = useState([])
   const [selectedStudentId, setSelectedStudentId] = useState(null)
+  const [selectedStudentOverride, setSelectedStudentOverride] =
+    useState(null)
+
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
   const [search, setSearch] = useState('')
+
   const [loadingConversations, setLoadingConversations] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
@@ -156,8 +163,6 @@ export default function Chat() {
   const messageListRef = useRef(null)
   const shouldScrollRef = useRef(true)
 
-  // Each conversation switch creates a new generation.
-  // Responses from previous generations are ignored.
   const generationRef = useRef(0)
   const selectedIdRef = useRef(null)
   const historyRequestRef = useRef(0)
@@ -179,7 +184,9 @@ export default function Chat() {
       ...options,
       headers: {
         Authorization: `Bearer ${activeToken}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.body
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...options.headers,
       },
     })
@@ -195,13 +202,14 @@ export default function Chat() {
     return data
   }, [])
 
-  // Reset chat state whenever the logged-in account changes.
+  // Reset state when the account changes.
   useEffect(() => {
     generationRef.current += 1
     historyRequestRef.current += 1
     selectedIdRef.current = null
 
     setSelectedStudentId(null)
+    setSelectedStudentOverride(null)
     setConversations([])
     setMessages([])
     setMessageText('')
@@ -243,6 +251,7 @@ export default function Chat() {
     }
   }, [apiRequest, currentUserId, state.user?.id])
 
+  // Load and periodically refresh accepted conversations.
   useEffect(() => {
     if (!token || currentUserId === null) {
       setConversations([])
@@ -253,13 +262,11 @@ export default function Chat() {
     let active = true
     setLoadingConversations(true)
 
-    const refresh = async () => {
-      if (active) await loadConversations(true)
-    }
-
     loadConversations(false)
 
-    const interval = window.setInterval(refresh, POLL_INTERVAL)
+    const interval = window.setInterval(() => {
+      if (active) loadConversations(true)
+    }, POLL_INTERVAL)
 
     return () => {
       active = false
@@ -268,13 +275,15 @@ export default function Chat() {
   }, [token, currentUserId, loadConversations])
 
   const selectedConversation = useMemo(
-    () => conversations.find(
-      (item) => toId(item.student?.id) === selectedStudentId
-    ) || null,
+    () =>
+      conversations.find(
+        (item) => toId(item.student?.id) === selectedStudentId
+      ) || null,
     [conversations, selectedStudentId]
   )
 
-  const selectedStudent = selectedConversation?.student || null
+  const selectedStudent =
+    selectedConversation?.student || selectedStudentOverride || null
 
   const loadMessages = useCallback(async (
     studentId,
@@ -297,8 +306,6 @@ export default function Chat() {
     try {
       const data = await apiRequest(`/chat/${studentId}/messages`)
 
-      // Ignore responses if the user changed conversations, logged out,
-      // or a newer history request has already started.
       if (
         generationRef.current !== generation ||
         selectedIdRef.current !== studentId ||
@@ -307,7 +314,11 @@ export default function Chat() {
         return
       }
 
-      const safeMessages = validateMessages(data, currentUserId, studentId)
+      const safeMessages = validateMessages(
+        data,
+        currentUserId,
+        studentId
+      )
 
       shouldScrollRef.current = false
       setMessages((previous) => mergeMessages(previous, safeMessages))
@@ -333,6 +344,40 @@ export default function Chat() {
     }
   }, [apiRequest, currentUserId, toast])
 
+  // Open a student passed from Discover.
+  // This effect comes after loadMessages so the hook is initialized first.
+  useEffect(() => {
+    const target = state.chatTarget
+
+    if (!target) return
+
+    const studentId = toId(target.id)
+
+    if (
+      studentId === null ||
+      currentUserId === null ||
+      studentId === currentUserId
+    ) {
+      dispatch({ type: 'clearChatTarget' })
+      toast('This student profile is not valid.')
+      return
+    }
+
+    generationRef.current += 1
+    historyRequestRef.current += 1
+    selectedIdRef.current = studentId
+
+    setSelectedStudentOverride(target)
+    setSelectedStudentId(studentId)
+    setMessages([])
+    setMessageText('')
+    setLoadingMessages(true)
+    shouldScrollRef.current = true
+
+    dispatch({ type: 'clearChatTarget' })
+  }, [state.chatTarget, currentUserId, dispatch, toast])
+
+  // Load messages and poll the currently selected conversation.
   useEffect(() => {
     if (
       !token ||
@@ -394,14 +439,15 @@ export default function Chat() {
       return {
         ...item,
         isMine: toId(item.sender_id) === currentUserId,
-        showDate: !previous || !sameDay(
-          previous.created_at,
-          item.created_at
-        ),
-        startsGroup: !previous ||
+        showDate:
+          !previous ||
+          !sameDay(previous.created_at, item.created_at),
+        startsGroup:
+          !previous ||
           toId(previous.sender_id) !== toId(item.sender_id) ||
           !sameDay(previous.created_at, item.created_at),
-        endsGroup: !next ||
+        endsGroup:
+          !next ||
           toId(next.sender_id) !== toId(item.sender_id) ||
           !sameDay(item.created_at, next.created_at),
       }
@@ -409,7 +455,8 @@ export default function Chat() {
   }, [messages, currentUserId])
 
   const openChat = (conversation) => {
-    const studentId = toId(conversation?.student?.id)
+    const student = conversation?.student
+    const studentId = toId(student?.id)
 
     if (
       studentId === null ||
@@ -424,6 +471,7 @@ export default function Chat() {
     historyRequestRef.current += 1
     selectedIdRef.current = studentId
 
+    setSelectedStudentOverride(student)
     setMessages([])
     setMessageText('')
     setLoadingMessages(true)
@@ -437,9 +485,12 @@ export default function Chat() {
     selectedIdRef.current = null
 
     setSelectedStudentId(null)
+    setSelectedStudentOverride(null)
     setMessages([])
     setMessageText('')
     setLoadingMessages(false)
+
+    dispatch({ type: 'clearChatTarget' })
   }
 
   const refreshMessages = async () => {
@@ -448,6 +499,7 @@ export default function Chat() {
     if (studentId === null) return
 
     const generation = generationRef.current
+
     await loadMessages(studentId, generation)
     await loadConversations(true)
   }
@@ -464,6 +516,7 @@ export default function Chat() {
     }
 
     const generation = generationRef.current
+
     sendingRef.current = true
     setSending(true)
 
@@ -474,17 +527,16 @@ export default function Chat() {
       })
 
       if (!belongsToPair(sent, currentUserId, studentId)) {
-        throw new Error('The server returned a message for another conversation.')
+        throw new Error(
+          'The server returned a message for another conversation.'
+        )
       }
 
-      // A successful send can finish after the user has switched chats.
-      // Only update the chat that was active when sending began.
       if (
         generationRef.current === generation &&
         selectedIdRef.current === studentId
       ) {
         shouldScrollRef.current = true
-
         setMessages((previous) => mergeMessages(previous, [sent]))
         setMessageText('')
       }
@@ -543,8 +595,9 @@ export default function Chat() {
               {student?.name || 'Conversation'}
             </p>
             <p className="truncate text-xs text-campus-muted">
-              {[student?.course, student?.college].filter(Boolean).join(' · ') ||
-                'CampusX connection'}
+              {[student?.course, student?.college]
+                .filter(Boolean)
+                .join(' · ') || 'CampusX connection'}
             </p>
           </div>
 
@@ -574,9 +627,12 @@ export default function Chat() {
               <div className="grid h-16 w-16 place-items-center rounded-full bg-campus-gray">
                 <MessageCircle size={27} />
               </div>
-              <h3 className="mt-4 font-extrabold">Start the conversation</h3>
+              <h3 className="mt-4 font-extrabold">
+                Start the conversation
+              </h3>
               <p className="mt-2 max-w-xs text-sm text-campus-muted">
-                Say hello to {student?.name || 'your connection'}. Your messages will appear here.
+                Say hello to {student?.name || 'your connection'}. Your
+                messages will appear here.
               </p>
             </div>
           )}
@@ -611,7 +667,9 @@ export default function Chat() {
                     {item.endsGroup && (
                       <div
                         className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                          item.isMine ? 'text-white/60' : 'text-campus-muted'
+                          item.isMine
+                            ? 'text-white/60'
+                            : 'text-campus-muted'
                         }`}
                       >
                         <span>{formatTime(item.created_at)}</span>
@@ -673,7 +731,9 @@ export default function Chat() {
           <p className="text-xs font-semibold uppercase tracking-wider text-campus-muted">
             CampusX
           </p>
-          <h2 className="mt-1 text-3xl font-extrabold tracking-tight">Messages</h2>
+          <h2 className="mt-1 text-3xl font-extrabold tracking-tight">
+            Messages
+          </h2>
           <p className="mt-1 text-sm text-campus-muted">
             Your conversations with fellow students.
           </p>
@@ -729,27 +789,31 @@ export default function Chat() {
           </span>
         </div>
 
-        {loadingConversations && conversations.length === 0 && !error && (
-          <p className="py-12 text-center text-sm text-campus-muted">
-            Loading conversations…
-          </p>
-        )}
-
-        {!loadingConversations && !error && filteredConversations.length === 0 && (
-          <div className="px-5 py-12 text-center">
-            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-campus-gray">
-              <MessageCircle size={24} />
-            </div>
-            <h3 className="mt-4 font-extrabold">
-              {search ? 'No matching students' : 'No conversations yet'}
-            </h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-campus-muted">
-              {search
-                ? 'Try a different name, course, or college.'
-                : 'Connect with students through Discover. Your accepted connections will appear here.'}
+        {loadingConversations &&
+          conversations.length === 0 &&
+          !error && (
+            <p className="py-12 text-center text-sm text-campus-muted">
+              Loading conversations…
             </p>
-          </div>
-        )}
+          )}
+
+        {!loadingConversations &&
+          !error &&
+          filteredConversations.length === 0 && (
+            <div className="px-5 py-12 text-center">
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-campus-gray">
+                <MessageCircle size={24} />
+              </div>
+              <h3 className="mt-4 font-extrabold">
+                {search ? 'No matching students' : 'No conversations yet'}
+              </h3>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-campus-muted">
+                {search
+                  ? 'Try a different name, course, or college.'
+                  : 'Connect with students through Discover. Your accepted connections will appear here.'}
+              </p>
+            </div>
+          )}
 
         <div className="divide-y divide-campus-border/70">
           {filteredConversations.map((conversation) => {
@@ -786,7 +850,10 @@ export default function Chat() {
                   <p className="mt-1 truncate text-xs text-campus-muted sm:text-sm">
                     {lastMessage
                       ? `${isMine ? 'You: ' : ''}${lastMessage.content}`
-                      : [student.course, student.college].filter(Boolean).join(' · ') ||
+                      : [
+                          student.course,
+                          student.college,
+                        ].filter(Boolean).join(' · ') ||
                         'Start a conversation'}
                   </p>
                 </div>

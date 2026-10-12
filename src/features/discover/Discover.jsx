@@ -22,7 +22,8 @@ import {
 
 import { useApp } from '../../store/AppContext'
 
-const API_URL = 'http://127.0.0.1:8000'
+import API_BASE from '../../config/api.js'
+const API_URL = API_BASE
 
 const CATS = ['Study Buddy', 'Skill Swap', 'Events', 'Resale', 'Find Items']
 const TOPICS = ['All', 'Programming', 'Math', 'Design', 'Music', 'Business']
@@ -54,7 +55,7 @@ async function apiRequest(path, token, options = {}) {
 }
 
 export default function Discover() {
-  const { state, toast } = useApp()
+  const { state, dispatch, toast } = useApp()
 
   const [cat, setCat] = useState('Study Buddy')
   const [topic, setTopic] = useState('All')
@@ -696,13 +697,22 @@ export default function Discover() {
    * STUDENT PROFILE
    */
   if (selectedStudent) {
-    return (
-      <StudentProfile
-        student={selectedStudent}
-        onBack={() => setSelectedStudent(null)}
-      />
-    )
-  }
+  return (
+    <StudentProfile
+      student={selectedStudent}
+      onBack={() => setSelectedStudent(null)}
+      onConnect={() => sendConnectionRequest(selectedStudent)}
+      onMessage={(student) => {
+        dispatch({
+          type: 'openChat',
+          student,
+        })
+      }}
+      connectionStatus={getConnectionStatus(selectedStudent)}
+      connecting={Boolean(connectionLoading[selectedStudent.id])}
+    />
+  )
+}
 
   return (
     <div className="space-y-5">

@@ -1,3 +1,4 @@
+import API_BASE from '../../config/api.js'
 import { useEffect, useState } from 'react'
 import {
   X,
@@ -218,7 +219,7 @@ export default function CreateSheet() {
     try {
       setEventSubmitting(true)
 
-      const response = await fetch('http://127.0.0.1:8000/events/', {
+      const response = await fetch(`${API_BASE}/events/`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',

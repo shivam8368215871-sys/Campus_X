@@ -3,7 +3,8 @@ import { useState } from 'react'
 import Button from '../../components/ui/Button'
 import { useApp } from '../../store/AppContext'
 
-const API_URL = 'http://127.0.0.1:8000'
+import API_BASE from '../../config/api.js'
+const API_URL = API_BASE
 
 const initialForm = {
   name: '',

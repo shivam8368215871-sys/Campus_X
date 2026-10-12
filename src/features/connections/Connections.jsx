@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
 
-const API_BASE = 'http://127.0.0.1:8000'
+import API_BASE from '../../config/api.js'
 
 function StudentCard({ student, actions }) {
   const name = student?.name || 'CampusX student'
