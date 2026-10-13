@@ -2,9 +2,7 @@
 import { useState } from 'react'
 import Button from '../../components/ui/Button'
 import { useApp } from '../../store/AppContext'
-
 import API_BASE from '../../config/api.js'
-const API_URL = API_BASE
 
 export default function Login() {
   const { dispatch } = useApp()
@@ -36,7 +34,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
+      const response = await fetch(`${API_BASE}/auth/login`, { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
